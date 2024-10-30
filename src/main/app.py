@@ -8,8 +8,8 @@ from src.main.agents.supervisor import Supervisor
 app = Flask(__name__)
 app.config.from_object(Config)
 socketio = SocketIO(app)
-supervisor = Supervisor(socketio)
 user_responses = {}
+
 
 @app.route('/')
 def index():
@@ -29,7 +29,22 @@ def handle_user_response(data):
     print("inside handle_user_response")
     user_responses[data['task_id']] = data['response']
     print(user_responses)
-    supervisor.process_task(user_responses.pop(data['task_id']))
+    if data.get('is_new_conversation', True):
+        # Only process the task if it's a new conversation
+        supervisor.process_task(user_responses.pop(data['task_id']))
+
+
+def wait_for_response(task_id):
+    """Wait for a response from the user for a given task ID."""
+    while task_id not in user_responses:
+        socketio.sleep(0.1)
+    response = user_responses.pop(task_id)
+    return response
+
+
+def send_response_callback(task_id, message):
+    """Send a message to the client along with task_id."""
+    socketio.emit('receive_message', {'task_id': task_id, 'message': message})
 
 
 @app.route('/chat', methods=['POST'])
@@ -52,4 +67,5 @@ def chat():
 
 if __name__ == '__main__':
     #app.run(debug=True)
-    socketio.run(app, debug=True, allow_unsafe_werkzeug=True)
+    supervisor = Supervisor(socketio, send_response_callback, wait_for_response)
+    socketio.run(app, debug=True, allow_unsafe_werkzeug=True, port=4400)

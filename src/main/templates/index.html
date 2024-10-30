@@ -5,27 +5,51 @@
     <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
 </head>
 <body>
-    <h1>Email Assistant</h1>
-    <div id="messages"></div>
-    <input id="response" type="text" placeholder="Type your response...">
-    <button id="send">Send</button>
+<h1>Email Assistant</h1>
+<div id="messages"></div>
+<input id="response" type="text" placeholder="Type your response...">
+<button id="send">Send</button>
 
-    <script>
-        const socket = io();
+<script>
+    const socket = io();
+    let isNewConversation = true;
+    let currentTaskId = null; // Initialize task ID variable
 
-        // Send response from the input field
-        document.getElementById('send').onclick = () => {
-            const response = document.getElementById('response').value;
-            const taskId = 'your_task_id'; // You need to manage task IDs accordingly
-            socket.emit('user_response', { task_id: taskId, response: response });
-            document.getElementById('response').value = ''; // Clear input
-        };
+    // Send response from the input field
+    document.getElementById('send').onclick = () => {
+        const response = document.getElementById('response').value;
 
-        // Listen for messages from the server
-        socket.on('receive_message', (message) => {
-            const messagesDiv = document.getElementById('messages');
-            messagesDiv.innerHTML += `<p>${message}</p>`;
+        // Send the task ID (currentTaskId) with the response if it's available
+        const taskId = currentTaskId || 'initial_task_id';
+
+        socket.emit('user_response', {
+            task_id: taskId,
+            response: response,
+            is_new_conversation: isNewConversation
         });
-    </script>
+
+        isNewConversation = false;
+        document.getElementById('response').value = ''; // Clear input
+    };
+
+    // Listen for messages from the server
+    socket.on('receive_message', (data) => {
+        const {task_id, message} = data;
+
+        // Display the received message
+        const messagesDiv = document.getElementById('messages');
+        messagesDiv.innerHTML += `<p>${message}</p>`;
+
+        // Update the currentTaskId with the received task_id
+        currentTaskId = task_id;
+    });
+
+    // Listen for task completion from the server
+    socket.on('task_completed', () => {
+        isNewConversation = true; // Reset the state for the next conversation
+        currentTaskId = null; // Reset task ID for a new conversation
+    });
+</script>
+
 </body>
 </html>

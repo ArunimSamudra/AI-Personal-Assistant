@@ -11,8 +11,8 @@ from src.main.tools.tool import Tool
 
 class EmailAgent(Agent):
 
-    def __init__(self, tool: Tool, socketio: SocketIO):
-        super().__init__(tool, socketio)
+    def __init__(self, tool: Tool, socketio: SocketIO, send_response_callback, wait_for_response):
+        super().__init__(tool, socketio, send_response_callback, wait_for_response)
         self.tool = GoogleTool()
 
     def handle_task(self, task):
@@ -22,11 +22,13 @@ class EmailAgent(Agent):
             emails, names = self.find_contact(task)
             if len(emails) != 0:
                 break
-            task = self.send_response_callback(task_id='email_input', message="Could not find names of recipients, please enter them")
+            self.send_response_callback(task_id='email_input', message="Could not find names of recipients, please enter them")
+            task = self.wait_for_response(task_id='email_input')
 
         print(f"Found contacts: {emails}")
 
-        brief_content = self.send_response_callback(task_id='brief_content_task', message="Please provide a brief content for the email:")
+        self.send_response_callback(task_id='brief_content_task', message="Please provide a brief content for the email:")
+        brief_content = self.wait_for_response(task_id='brief_content_task')
         email_body = self.generate_email_content(brief_content, emails)
         approved = False
         while not approved:
@@ -79,7 +81,7 @@ class EmailAgent(Agent):
         # prompt = f"Based on the user query '{query}', suggest the names of the email recipients. If no suitable names can be found, request more details."
         # response = ollama.call("your_model_name", prompt)  # Replace with your Ollama model
         # return response.get('names', [])
-        if random.random() > 0.5:
+        if random.random() > 0.9:
             return ["arunim"]
         return []
 

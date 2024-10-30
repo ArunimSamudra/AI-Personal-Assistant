@@ -6,6 +6,7 @@ from main.agents.impl.email_agent import EmailAgent
 from main.agents.impl.scheduling_agent import SchedulingAgent
 from main.tools.impl.email_tool import EmailTool
 from main.tools.impl.schedule_tool import ScheduleTool
+from main.util.status import Status
 
 
 # Supervisor class that manages agent routing and workflow logic
@@ -13,10 +14,10 @@ from main.tools.impl.schedule_tool import ScheduleTool
 
 # TODO Supervisor itself is an LLM that decides where to route based on things like task, agent response
 class Supervisor:
-    def __init__(self, socketio: SocketIO):
+    def __init__(self, socketio: SocketIO, send_response_callback, wait_for_response):
         # Initialize agents with corresponding tools
         self.agents = {
-            "email": EmailAgent(EmailTool(), socketio),
+            "email": EmailAgent(EmailTool(), socketio, send_response_callback, wait_for_response),
             # "pdf": PDFAgent(PDFTool()),
             "schedule": SchedulingAgent(ScheduleTool(), socketio),
             # "internet_search": InternetSearchAgent(InternetSearchTool()),
@@ -24,7 +25,8 @@ class Supervisor:
         }
         self.history = []  # Track conversation history
         self.socketio = socketio
-        self.task_complete = False
+        self.task_status = Status.IDLE
+        self.current_agent = None
 
     def determine_next_agent(self, task: str, current_agent: str = None) -> Optional[str]:
         # TODO better logic to which agent to route to
@@ -40,7 +42,7 @@ class Supervisor:
         elif "question" in task:
             return "question"  # Route to question agent if task is unclear
         else:
-            return "FINISH"
+            return "email"
 
     def process_task(self, task: str):
         self.task_complete = False
@@ -53,6 +55,7 @@ class Supervisor:
 
             self.history.append((agent_name, response))
 
+            # TODO check this portion
             agent_name = self.determine_next_agent(task)
             # Decide next step based on response
             if agent_name == "FINISH":
