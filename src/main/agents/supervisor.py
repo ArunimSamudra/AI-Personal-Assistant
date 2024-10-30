@@ -1,9 +1,11 @@
 from typing import List, Dict, Optional, Type
 
-from agents.impl.email_agent import EmailAgent
-from agents.impl.pdf_agent import PDFAgent
-from tools.impl.email_tool import EmailTool
-from tools.impl.pdf_tool import PDFTool
+from flask_socketio import SocketIO
+
+from main.agents.impl.email_agent import EmailAgent
+from main.agents.impl.scheduling_agent import SchedulingAgent
+from main.tools.impl.email_tool import EmailTool
+from main.tools.impl.schedule_tool import ScheduleTool
 
 
 # Supervisor class that manages agent routing and workflow logic
@@ -11,16 +13,17 @@ from tools.impl.pdf_tool import PDFTool
 
 # TODO Supervisor itself is an LLM that decides where to route based on things like task, agent response
 class Supervisor:
-    def __init__(self):
+    def __init__(self, socketio: SocketIO):
         # Initialize agents with corresponding tools
         self.agents = {
-            "email": EmailAgent(EmailTool()),
-            "pdf": PDFAgent(PDFTool()),
-            # "schedule": SchedulingAgent(ScheduleTool()),
+            "email": EmailAgent(EmailTool(), socketio),
+            # "pdf": PDFAgent(PDFTool()),
+            "schedule": SchedulingAgent(ScheduleTool(), socketio),
             # "internet_search": InternetSearchAgent(InternetSearchTool()),
             # "question": QuestionAgent(None)  # No tool needed
         }
         self.history = []  # Track conversation history
+        self.socketio = socketio
         self.task_complete = False
 
     def determine_next_agent(self, task: str, current_agent: str = None) -> Optional[str]:

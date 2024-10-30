@@ -1,4 +1,4 @@
-from tools.impl.tool import Tool
+from src.main.tools.tool import Tool
 
 
 class InternetSearchTool(Tool):

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Email Assistant</title>
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+</head>
+<body>
+    <h1>Email Assistant</h1>
+    <div id="messages"></div>
+    <input id="response" type="text" placeholder="Type your response...">
+    <button id="send">Send</button>
+
+    <script>
+        const socket = io();
+
+        // Send response from the input field
+        document.getElementById('send').onclick = () => {
+            const response = document.getElementById('response').value;
+            const taskId = 'your_task_id'; // You need to manage task IDs accordingly
+            socket.emit('user_response', { task_id: taskId, response: response });
+            document.getElementById('response').value = ''; // Clear input
+        };
+
+        // Listen for messages from the server
+        socket.on('receive_message', (message) => {
+            const messagesDiv = document.getElementById('messages');
+            messagesDiv.innerHTML += `<p>${message}</p>`;
+        });
+    </script>
+</body>
+</html>
