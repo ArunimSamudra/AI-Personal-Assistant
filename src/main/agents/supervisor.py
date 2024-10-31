@@ -1,66 +1,135 @@
-from typing import List, Dict, Optional, Type
+import functools
+import operator
+from typing import Literal, Annotated, TypedDict, Sequence
 
-from flask_socketio import SocketIO
+from langchain_core.messages import HumanMessage, BaseMessage
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_openai import ChatOpenAI
+from langgraph.constants import END, START
+from langgraph.graph import StateGraph
 
 from main.agents.impl.email_agent import EmailAgent
+from main.agents.impl.question_agent import QuestionAgent
 from main.agents.impl.scheduling_agent import SchedulingAgent
-from main.tools.impl.email_tool import EmailTool
-from main.tools.impl.schedule_tool import ScheduleTool
-from main.util.status import Status
+from main.config import Config
+from pydantic import BaseModel
+
+
+class RouteResponse(BaseModel):
+    next: Literal["FINISH", "EmailAgent", "SchedulerAgent", "UserInputAgent"]
 
 
 # Supervisor class that manages agent routing and workflow logic
 # Supervisor class to manage agents
-
-# TODO Supervisor itself is an LLM that decides where to route based on things like task, agent response
 class Supervisor:
-    def __init__(self, socketio: SocketIO, send_response_callback, wait_for_response):
-        # Initialize agents with corresponding tools
-        self.agents = {
-            "email": EmailAgent(EmailTool(), socketio, send_response_callback, wait_for_response),
-            # "pdf": PDFAgent(PDFTool()),
-            "schedule": SchedulingAgent(ScheduleTool(), socketio),
-            # "internet_search": InternetSearchAgent(InternetSearchTool()),
-            # "question": QuestionAgent(None)  # No tool needed
-        }
-        self.history = []  # Track conversation history
-        self.socketio = socketio
-        self.task_status = Status.IDLE
-        self.current_agent = None
 
-    def determine_next_agent(self, task: str, current_agent: str = None) -> Optional[str]:
-        # TODO better logic to which agent to route to
-        # Choose agent based on task type in message
-        if "email" in task:
-            return "email"
-        elif "pdf" in task:
-            return "pdf"
-        elif "schedule" in task:
-            return "schedule"
-        elif "search" in task:
-            return "internet_search"
-        elif "question" in task:
-            return "question"  # Route to question agent if task is unclear
-        else:
-            return "email"
+    def __init__(self, send_response_callback, wait_for_response, send_task_completed, send_task_failed):
+        # members = ["EmailAgent", "PDFQueryAgent", "SchedulerAgent", "SearchAgent", "ClarificationAgent"]
+        self.members = ["EmailAgent", "UserInputAgent"]
+        self.options = ["FINISH"] + self.members
+        self.model = ChatOpenAI(model="gpt-4o-mini", api_key=Config.OPEN_AI_KEY)
+        self.send_response_callback = send_response_callback
+        self.wait_for_response = wait_for_response
+        self.send_task_completed = send_task_completed
+        self.send_task_failed = send_task_failed
+        self.last_task = None
+
+    def create_supervisor_agent(self):
+        system_prompt = (
+            "You are a supervisor tasked with managing a conversation between the"
+            " following agents: {members}. Given the current user request, respond"
+            " with the agent that should act next. When the task is complete, respond"
+            " with FINISH."
+        )
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", system_prompt),
+                MessagesPlaceholder(variable_name="messages"),
+                (
+                    "system",
+                    "Given the conversation above, who should act next?"
+                    " Select one of: {options}",
+                ),
+            ]
+        ).partial(options=str(self.options), members=", ".join(self.members))
+        self.supervisor_llm = ChatOpenAI(model="gpt-4o-mini", api_key=Config.OPEN_AI_KEY)
+        self.supervisor_chain = prompt | self.supervisor_llm.with_structured_output(RouteResponse)
+
+    def supervisor_agent(self, state):
+        response = self.supervisor_chain.invoke(state)
+        return response
+
+    # Define agents' task execution logic
+    def agent_node(self, state, agent, name, task_id):
+        result = agent.invoke(state)
+        self.last_task = task_id
+        self.send_response_callback(task_id=task_id,
+                                    message=result["messages"][-1].content)
+        return {
+            "messages": [HumanMessage(content=result["messages"][-1].content, name=name)]
+        }
+
+    def user_node(self, state, agent, name):
+        # if not self.last_task:
+        #     result = agent.invoke(state)
+        #     self.last_task = 'user_input'
+        #     self.send_response_callback(task_id='user_input',
+        #                                 message=result['messages'][-1].content)
+        #     return {
+        #         "messages": [HumanMessage(content=result["messages"][-1].content, name=name)]
+        #     }
+        user_response = self.wait_for_response(task_id=self.last_task)
+        state['messages'].append(HumanMessage(content=user_response, name=name))
+        return {
+            "messages": [HumanMessage(content=user_response, name=name)]
+        }
+
+    class AgentState(TypedDict):
+        messages: Annotated[Sequence[BaseMessage], operator.add]
+        next: str
+
+    def create_agents(self):
+        pass
 
     def process_task(self, task: str):
-        self.task_complete = False
-        agent_name = self.determine_next_agent(task)
+        self.create_supervisor_agent()
 
-        while not self.task_complete:
-            agent = self.agents[agent_name]
-            response = agent.handle_task(task)
-            print(f"{agent_name.capitalize()} Agent Response: {response}")
+        # Partial function application for each agent node
+        email_node = functools.partial(self.agent_node, agent=EmailAgent(model=self.model)(), name="EmailAgent",
+                                       task_id="email")
+        # scheduling_node = functools.partial(self.agent_node, agent=SchedulingAgent(model=self.model), name="SchedulerAgent")
+        user_input_node = functools.partial(self.user_node, agent=QuestionAgent(model=self.model)(), name="UserInput")
 
-            self.history.append((agent_name, response))
+        workflow = StateGraph(self.AgentState)
+        workflow.add_node("EmailAgent", email_node)
+        # workflow.add_node("SchedulerAgent", scheduling_node)
+        workflow.add_node("UserInputAgent", user_input_node)
+        workflow.add_node("supervisor", self.supervisor_agent)
 
-            # TODO check this portion
-            agent_name = self.determine_next_agent(task)
-            # Decide next step based on response
-            if agent_name == "FINISH":
-                self.task_complete = True  # Finish if no more agents needed
-                print("Task complete.")
+        # Add edges to return to supervisor after each task
+        for member in self.members:
+            workflow.add_edge(member, "supervisor")
 
+        # Conditional routing logic in the supervisor based on task results
+        conditional_map = {k: k for k in self.members}
+        conditional_map["FINISH"] = END
+        workflow.add_conditional_edges("supervisor", lambda x: x["next"], conditional_map)
+        workflow.add_edge(START, "supervisor")
 
+        graph = workflow.compile()
 
+        try:
+            for s in graph.stream(
+                    {
+                        "messages": [
+                            HumanMessage(content=task)
+                        ]
+                    }
+            ):
+                if "__end__" not in s:
+                    print(s)
+                    print("----")
+        except Exception as e:
+            print("Error:", e)
+            self.send_task_failed()
+        self.send_task_completed()

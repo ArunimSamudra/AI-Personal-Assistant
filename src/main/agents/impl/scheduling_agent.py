@@ -1,17 +1,90 @@
-from flask_socketio import SocketIO
+from googleapiclient.errors import HttpError
 
-from main.tools.impl.google_tool import GoogleTool
-from src.main.agents.agent import Agent
-from src.main.tools.tool import Tool
+from main.util.google_auth import GoogleAuth
+from langgraph.prebuilt import create_react_agent
+from langchain_core.tools import tool
+from googleapiclient.discovery import build
 
 
-class SchedulingAgent(Agent):
+class SchedulingAgent:
 
-    def __init__(self, tool: Tool, socketio: SocketIO):
-        super().__init__(tool, socketio, None, None)
-        self.tool = GoogleTool()
-        self.meeting_info = {"summary": None, "start": None, "end": None, "attendees": None, "location": None,
-                             "description": None}
+    def __init__(self, model):
+        self.credentials = GoogleAuth().authenticate()
+        self.calendar_service = build('calendar', 'v3', credentials=self.credentials)
+        self.scheduler_prompt = """
+                You are part of a multi-agent system designed to be a personal assistant for the user. 
+                Specifically, you are the **Scheduling Agent** responsible for scheduling and creating meetings on behalf of the user.
+                        """
+        self.scheduling_agent = create_react_agent(model, tools=[self.create_event], state_modifier=self.scheduler_prompt)
+
+    @tool
+    def create_event(self, event_payload):
+        """
+            Creates a calendar event using the Google Calendar API.
+
+            This function uses the Google Calendar API to insert a new event into the primary calendar
+            based on the details provided in `event_payload`. It returns the event details if the event
+            is created successfully or prints an error message if there is a failure.
+
+            :param event_payload: A dictionary containing event details, such as start and end times,
+                                  summary (title), description, location, and attendees. The structure
+                                  should follow the Google Calendar API's expected event format.
+            :type event_payload: dict
+            :return: A dictionary with details of the created event, including the event ID, start and
+                     end times, and other relevant information, if successful. If there is an error,
+                     returns None after printing an error message.
+            :rtype: dict or None
+        """
+        try:
+            event_result = self.calendar_service.events().insert(calendarId='primary', body=event_payload).execute()
+            return event_result
+        except HttpError as error:
+            print(f"An error occurred: {error}")
+
+    def get_date_events(self, date) -> str:
+        """
+            Retrieves all events for a specified date from the primary Google Calendar.
+
+            Args:
+                date (str): Date for which to retrieve events in 'YYYY-MM-DD' format.
+
+            Returns:
+                str: A formatted string listing all events for the specified date,
+                     each on a new line in the format "start_time - summary".
+                     If no events are found, returns a message stating no events were found.
+
+            Example:
+                >>> get_date_events("2024-11-01")
+                "2024-11-01T10:00:00Z - Event 1\n2024-11-01T15:00:00Z - Event 2"
+
+            Notes:
+                - `timeMin` and `timeMax` are set to cover the full day based on the provided date.
+                - Assumes 'calendar_service' is an authenticated Google Calendar API service instance.
+                - The events are ordered by their start time.
+        """
+        time_min = f"{date}T00:00:00Z"  # start of the day in ISO format
+        time_max = f"{date}T23:59:59Z"  # end of the day in ISO format
+
+        # List events on a particular date
+        events_result = self.calendar_service.events().list(
+            calendarId='primary',
+            timeMin=time_min,
+            timeMax=time_max,
+            singleEvents=True,
+            orderBy='startTime'
+        ).execute()
+
+        events = events_result.get('items', [])
+
+        all_events = ""
+        # Return event details
+        if not events:
+            return f'No events found on {date}.'
+        # Iterate through each event and append its details to the string
+        for event in events:
+            start = event['start'].get('dateTime', event['start'].get('date'))
+            all_events += f"{start} - {event['summary']}\n"
+        return all_events[:-1]
 
     def handle_task(self, task):
         # Main workflow for scheduling a meeting

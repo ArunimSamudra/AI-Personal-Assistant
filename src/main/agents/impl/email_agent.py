@@ -1,93 +1,141 @@
 # # import ollama
-import random
+from langchain_core.prompts import PromptTemplate
+from langchain_openai import ChatOpenAI
+from langgraph.prebuilt import create_react_agent
 
-from flask_socketio import SocketIO
+import base64
+from email.message import EmailMessage
 
-from main.tools.impl.google_tool import GoogleTool
-from src.main.agents.agent import Agent
+from flask import current_app
+from googleapiclient.errors import HttpError
+from langchain_core.tools import tool
+from googleapiclient.discovery import build
 
-from src.main.tools.tool import Tool
+from main.config import Config
+from main.tools.impl.email_tool import EmailTool
+from main.util.google_auth import GoogleAuth
 
 
-class EmailAgent(Agent):
+class EmailAgent:
 
-    def __init__(self, tool: Tool, socketio: SocketIO, send_response_callback, wait_for_response):
-        super().__init__(tool, socketio, send_response_callback, wait_for_response)
-        self.tool = GoogleTool()
+    def __init__(self, model: ChatOpenAI):
+        self.email_prompt = """
+                You are part of a multi-agent system designed to be a personal assistant for the user. 
+                Specifically, you are the **Email Agent** responsible for composing and sending emails on behalf of the user.
+                
+                Your task is to gather three essential pieces of information needed to send an email:
+                1. **Recipient(s)**: Who the email is for.
+                2. **Body**: The main message of the email.
+                3. **Subject**: A brief description of the email topic.
+                
+                Your responsibilities are as follows:
+                - **Extract Information**: When the user requests an email, analyze their query to identify the 
+                  recipients, body, and subject. If any of this information is missing or unclear, ask the user directly to provide it.
+                  
+                - **Draft Confirmation**: Once all required information is gathered, generate a draft email 
+                  that includes the recipient(s), subject, and body. Display this draft to the user and explicitly 
+                  ask for confirmation before sending. Your confirmation request should allow the user to review the email and verify its details.
+                
+                - **Send or Modify**: 
+                    - If the user confirms, send the email on their behalf and inform them that it has been sent successfully.
+                    - If the user does not confirm, ask for specific changes or suggestions on how to adjust the draft 
+                     to better match their needs. Use the user’s feedback to update the draft and repeat the confirmation process until they approve.
+                
+                Additional Guidelines:
+                - **Clarity and Professionalism**: Ensure the draft is clearly worded, professional, and accurate.
+                - **Polite and Prompt**: When requesting missing information or asking for confirmation, be polite and 
+                        concise to facilitate a smooth, user-friendly interaction.
+                - **Iterative Approach**: Continue iterating through the steps of drafting and confirming until the user 
+                    is satisfied and confirms the email draft for sending.
+                
+                Your goal is to streamline the email composition and confirmation process while ensuring that all 
+                details are correct and aligned with the user’s intent.
+                """
+        self.email_agent = create_react_agent(model, tools=[self.extract_info_from_query, self.send_email],
+                                              state_modifier=self.email_prompt)
 
-    def handle_task(self, task):
-        emails, names = [], []
+    def __call__(self):
+        return self.email_agent
 
-        while len(emails) == 0:
-            emails, names = self.find_contact(task)
-            if len(emails) != 0:
-                break
-            self.send_response_callback(task_id='email_input', message="Could not find names of recipients, please enter them")
-            task = self.wait_for_response(task_id='email_input')
+    @staticmethod
+    @tool
+    def extract_info_from_query(query) -> str:
+        """
+            Extracts email details from a user query.
 
-        print(f"Found contacts: {emails}")
+            This method analyzes the provided query to extract essential information
+            needed to compose an email, including email addresses, subject, and body.
+            If any required information is missing or unclear, the method indicates
+            which details are lacking.
 
-        self.send_response_callback(task_id='brief_content_task', message="Please provide a brief content for the email:")
-        brief_content = self.wait_for_response(task_id='brief_content_task')
-        email_body = self.generate_email_content(brief_content, emails)
-        approved = False
-        while not approved:
-            print("\nGenerated Email Body:\n", email_body)
-            confirm_body = self.send_response_callback(task_id='brief_content_task', message="Do you want to approve this email body? (yes/no) ")
-            if confirm_body.lower() not in ['y', 'yes']:
-                email_body = self.generate_email_content(brief_content, names)
-            else:
-                approved = True
+            Args:
+                self: An instance of the EmailAgent class
+                query (str): The user query containing information related to the email
+                             to be composed.
 
-        # Generate email subject
-        # subject_prompt = f"Suggest a subject line for the following email: {email_body}"
-        # # TODO
-        # subject = ollama.call("your_model_name", subject_prompt)  # Replace with your Ollama model
-        # subject_approval = False
-        # while not subject_approval:
-        #     print("Suggested Subject:", subject)
-        #
-        #     confirm_subject = input("Do you want to approve this subject? (yes/no) ")
-        #     if confirm_subject.lower() != 'yes':
-        #         subject_prompt = f"Suggest a subject line for the following email: {email_body}"
-        #         subject = ollama.call("your_model_name", subject_prompt)  # Replace with your Ollama model
-        #     else:
-        #         subject_approval = True
-        #
-        # # Send email (replace with your actual email sending logic)
-        # print(f"Sending email to {emails}...")
-        # self.tool.send_email(emails, subject, email_body)  # Uncomment and implement this function
-        # print("Email sent successfully!")
-        return "successful"
+            Returns:
+                str: A formatted response that includes extracted email addresses, subject,
+                     body, and any missing details, all presented in a readable format.
+            """
+        model = ChatOpenAI(model="gpt-4o-mini", api_key=Config.OPEN_AI_KEY)
+        prompt = PromptTemplate(
+            input_variables=["query"],
+            template=(
+                "You are a personal assistant. Analyze the following query and extract the necessary information to compose an email:\n\n"
+                "Query: {query}\n\n"
+                "Please extract the following details:\n"
+                "1. Email Address(es):\n"
+                "2. Subject:\n"
+                "3. Body:\n\n"
+                "If any of these pieces of information are missing or unclear, indicate which ones are missing."
+            ),
+        )
 
-    # Fetch email contact based on user query
-    def find_contact(self, query):
-        while True:
-            recipient_names = self.find_recipient_names(query)
+        # Generate a response from the model
+        response = model.invoke(prompt.format(query=query))
+        return response.content
 
-            email = []
-            if recipient_names:
-                for name in recipient_names:
-                    # TODO handle multiple names
-                    email = self.tool.find_email_by_name(name)
-                    if email:
-                        print(f"Found email for {name}: {email}")
-                        email.append(email)
-            else:
-                print("No suitable recipient found. Please provide more details.")
-            return email, recipient_names
+    @staticmethod
+    @tool
+    def send_email(contact_emails, subject, email_body) -> str:
+        """
+        Sends an email using the Gmail API.
 
-    def find_recipient_names(self, query: str):
-        # prompt = f"Based on the user query '{query}', suggest the names of the email recipients. If no suitable names can be found, request more details."
-        # response = ollama.call("your_model_name", prompt)  # Replace with your Ollama model
-        # return response.get('names', [])
-        if random.random() > 0.9:
-            return ["arunim"]
-        return []
+        This function composes an email using the specified recipient emails, subject, and body content,
+        then sends it via the Gmail API. If successful, it returns a confirmation message;
+        otherwise, it catches and returns any error encountered during the process.
 
-    # Generate email body and subject using the LLM
-    def generate_email_content(self, content, contacts):
-        # prompt = f"Write an email to {contacts} with the following content: {content}"
-        # response = ollama.call("your_model_name", prompt)  # Replace with your Ollama model
-        # return response
-        return "Email body"
+        :param contact_emails: List of recipient email addresses to whom the email will be sent.
+        :type contact_emails: list of str
+        :param subject: Subject line of the email.
+        :type subject: str
+        :param email_body: The main content of the email to be sent.
+        :type email_body: str
+        :return: A message indicating whether the email was sent successfully or an error message if the email could not be sent.
+        :rtype: str
+        """
+        credentials = GoogleAuth().authenticate()
+        gmail_service = build("gmail", "v1", credentials=credentials)
+
+        message = EmailMessage()
+        message["To"] = ", ".join(contact_emails)
+        message["From"] = current_app.config['SENDER_EMAIL']
+        message["Subject"] = subject
+        message.set_content(email_body)
+
+        # encoded message
+        encoded_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
+
+        create_message = {"raw": encoded_message}
+
+        try:
+            send_message = (
+                gmail_service.users()
+                .messages()
+                .send(userId="me", body=create_message)
+                .execute()
+            )
+            print(f'Message Id: {send_message["id"]}')
+            return "Email sent successfully!"
+        except HttpError as error:
+            return f"An error occurred: {error}"

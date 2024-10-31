@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify, render_template
 from flask_socketio import SocketIO, emit
 
+from main.util.google_auth import GoogleAuth
 from src.main.config import Config
 from src.main.agents.supervisor import Supervisor
 
@@ -47,25 +48,38 @@ def send_response_callback(task_id, message):
     socketio.emit('receive_message', {'task_id': task_id, 'message': message})
 
 
+def send_task_completed():
+    """Send a message to the client indicating current session is over."""
+    socketio.emit('task_completed', None)
+
+
+def send_task_failed():
+    """Send a message to the client indicating current session was failed."""
+    socketio.emit('task_failed', {
+        'message': "Sorry, there seems to be some problem, can you type your question again?"})
+
+
 @app.route('/chat', methods=['POST'])
 def chat():
     # Get task from the JSON payload
     data = request.get_json()
-    # user_task = data.get("task", "")
-    #
-    # # Check if user wants to exit (for this API, you could modify the behavior)
-    # if user_task.lower() == 'exit':
-    #     return jsonify({"message": "Exiting assistant."}), 200
-    #
-    # # Process task using Supervisor
+    user_task = data.get("task", "")
+
+    # Check if user wants to exit (for this API, you could modify the behavior)
+    if user_task.lower() == 'exit':
+        return jsonify({"message": "Exiting assistant."}), 200
+
+    # Process task using Supervisor
     # supervisor = Supervisor(socketio, send_response_callback, wait_for_response)
     # response = supervisor.process_task(user_task)
 
     # Return JSON response
-    return jsonify({"response": None}), 200
+    return jsonify({
+        "response": "You are part of a multi-agent system designed to be a personal assistant for the user. Specifically, you are the **Scheduling Agent** responsible for scheduling and creating meetings on behalf of the user."}), 200
 
 
 if __name__ == '__main__':
-    #app.run(debug=True)
-    supervisor = Supervisor(socketio, send_response_callback, wait_for_response)
+    # app.run(debug=True, port=4400)
+    GoogleAuth().authenticate()
+    supervisor = Supervisor(send_response_callback, wait_for_response, send_task_completed, send_task_failed)
     socketio.run(app, debug=True, allow_unsafe_werkzeug=True, port=4400)

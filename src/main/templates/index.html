@@ -1,25 +1,146 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Email Assistant</title>
+    <title>Personal Assistant</title>
     <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+            margin: 0;
+        }
+
+        #container {
+            width: 100%;
+            max-width: 60%;
+            height: 70vh; /* Set height to 50% of the viewport height */
+            text-align: center;
+            overflow-y: auto; /* Allow vertical scrolling if content overflows */
+        }
+
+        h1 {
+            color: #333;
+        }
+
+        #messages {
+            border: 1px solid #ccc;
+            padding: 15px;
+            height: 300px;
+            overflow-y: auto;
+            margin-bottom: 20px;
+            background-color: #fff;
+            text-align: left; /* Left align messages */
+        }
+
+        #input-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #response {
+            flex-grow: 1;
+            padding: 10px;
+            font-size: 16px;
+            width: 70%;
+        }
+
+        #send {
+            padding: 10px;
+            font-size: 16px;
+            margin-left: 5px;
+        }
+
+        #upload {
+            padding: 10px;
+            font-size: 16px;
+            margin-left: 5px;
+            display: flex;
+            align-items: center; /* Vertically center the content */
+        }
+
+        #upload img {
+            margin-right: 5px; /* Space between the icon and text */
+            height: 20px; /* Adjust the height of the icon */
+            width: 20px; /* Adjust the width of the icon */
+        }
+
+
+        .user-message, .server-message {
+            border: 1px solid #ccc; /* Border for messages */
+            border-radius: 5px; /* Rounded corners */
+            padding: 8px; /* Padding inside messages */
+            margin: 5px 0; /* Margin between messages */
+        }
+
+        .user-message {
+            color: #007BFF; /* User message color */
+            text-align: right; /* Align user messages to the right */
+            background-color: #e7f0ff; /* Light blue background for user messages */
+            width: 50%; /* Set width for user messages */
+            max-width: 100%; /* Prevent overflow */
+            margin-left: auto; /* Push the message to the right */
+            margin-right: 0; /* No margin on the right */
+            border-radius: 10px; /* Optional: Rounded corners for a better look */
+            padding: 10px; /* Optional: Padding for better spacing */
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1); /* Optional: Subtle shadow effect */
+        }
+
+
+        .server-message {
+            color: #333; /* Server message color */
+            background-color: #f0f0f0; /* Light gray background for server messages */
+            width: 65%; /* Set width for user messages */
+            max-width: 100%; /* Prevent overflow */
+        }
+    </style>
 </head>
 <body>
-<h1>Email Assistant</h1>
-<div id="messages"></div>
-<input id="response" type="text" placeholder="Type your response...">
-<button id="send">Send</button>
+<div id="container">
+    <h1>Personal Assistant</h1>
+    <div id="messages"></div>
+    <div id="input-container">
+        <button id="upload">
+            <img src="{{ url_for('static', filename='images/file_upload.png') }}" alt="Upload PDF"
+                 style="width: 25px; height: 25px;"/>
+        </button>
+        <input type="file" id="pdfUpload" accept=".pdf" style="display:none;"/>
+        <input id="response" type="text" placeholder="Type your response..."/>
+        <button id="send">Send</button>
+
+    </div>
+</div>
 
 <script>
     const socket = io();
     let isNewConversation = true;
-    let currentTaskId = null; // Initialize task ID variable
+    let currentTaskId = null;
+
+    // Handle 'Enter' key press for sending message
+    document.getElementById('response').addEventListener('keyup', function (event) {
+        if (event.key === 'Enter') {
+            sendMessage();
+        }
+    });
 
     // Send response from the input field
-    document.getElementById('send').onclick = () => {
-        const response = document.getElementById('response').value;
+    document.getElementById('send').onclick = sendMessage;
 
-        // Send the task ID (currentTaskId) with the response if it's available
+    function sendMessage() {
+        const response = document.getElementById('response').value;
+        if (!response) return;
+
+        // Display the user's message
+        const messagesDiv = document.getElementById('messages');
+        const userMessageParagraph = document.createElement('p');
+        userMessageParagraph.textContent = response;
+        userMessageParagraph.className = 'user-message'; // Add class for user message
+        messagesDiv.appendChild(userMessageParagraph);
+
         const taskId = currentTaskId || 'initial_task_id';
 
         socket.emit('user_response', {
@@ -30,26 +151,118 @@
 
         isNewConversation = false;
         document.getElementById('response').value = ''; // Clear input
+        scrollToBottom(); // Scroll to the bottom
+    }
+
+    // PDF upload handling
+    document.getElementById('upload').onclick = () => {
+        const pdfInput = document.getElementById('pdfUpload');
+        pdfInput.click(); // Trigger the file input
     };
 
-    // Listen for messages from the server
-    socket.on('receive_message', (data) => {
-        const {task_id, message} = data;
+    document.getElementById('pdfUpload').onchange = function (event) {
+        const file = event.target.files[0];
+        if (file && file.type === 'application/pdf') {
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                // Send the PDF file to the server as a data URL
+                const pdfData = e.target.result;
+                socket.emit('upload_pdf', {
+                    task_id: currentTaskId || 'initial_task_id',
+                    pdf_data: pdfData,
+                    pdf_name: file.name
+                });
 
-        // Display the received message
+                // Display the uploaded PDF message
+                const messagesDiv = document.getElementById('messages');
+                const pdfMessageParagraph = document.createElement('p');
+                pdfMessageParagraph.textContent = `Uploaded PDF: ${file.name}`;
+                pdfMessageParagraph.className = 'user-message';
+                messagesDiv.appendChild(pdfMessageParagraph);
+                scrollToBottom(); // Scroll to the bottom
+            };
+            reader.readAsDataURL(file); // Read the file as a data URL
+        } else {
+            alert('Please upload a valid PDF file.');
+        }
+    };
+
+    // Listen for streaming messages from the server
+    socket.on('receive_message', (data) => {
+        let {task_id, message} = data;
+
+        message = message.replace(/\n/g, '<br>');
+        // Replace **bold text** with <strong>bold text</strong> for HTML rendering
+        message = message.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+
+        // Display server message in streaming format
         const messagesDiv = document.getElementById('messages');
-        messagesDiv.innerHTML += `<p>${message}</p>`;
+        let messageParagraph = document.createElement('p');
+        messageParagraph.className = 'server-message'; // Add class for server message
+        messagesDiv.appendChild(messageParagraph);
+
+        // Simulate streaming by appending one character at a time
+        let index = 0;
+
+        function streamMessage() {
+            // Gradually add more of the message content, preserving HTML formatting
+            messageParagraph.innerHTML = message.slice(0, index++);
+
+            // Scroll to the bottom as text streams
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+            // Continue streaming until the end of the message
+            if (index <= message.length) {
+                setTimeout(streamMessage, 10); // Adjust delay for streaming effect
+            }
+        }
+
+        streamMessage();
 
         // Update the currentTaskId with the received task_id
         currentTaskId = task_id;
+        scrollToBottom(); // Scroll to the bottom
+    });
+
+    // Listen for task fail from the server
+    socket.on('task_failed', (data) => {
+        const {message} = data;
+
+        // Display server message in streaming format
+        const messagesDiv = document.getElementById('messages');
+        let messageParagraph = document.createElement('p');
+        messageParagraph.className = 'server-message'; // Add class for server message
+        messagesDiv.appendChild(messageParagraph);
+
+        // Simulate streaming by appending one character at a time
+        let index = 0;
+
+        function streamMessage() {
+            if (index < message.length) {
+                messageParagraph.textContent += message[index++];
+                setTimeout(streamMessage, 20); // Adjust delay for streaming effect
+            }
+        }
+
+        streamMessage();
+
+        // Update the currentTaskId with the received task_id
+        scrollToBottom(); // Scroll to the bottom
+        isNewConversation = true;
+        currentTaskId = null;
     });
 
     // Listen for task completion from the server
     socket.on('task_completed', () => {
-        isNewConversation = true; // Reset the state for the next conversation
-        currentTaskId = null; // Reset task ID for a new conversation
+        isNewConversation = true;
+        currentTaskId = null;
     });
-</script>
 
+    // Function to scroll to the bottom of the messages
+    function scrollToBottom() {
+        const messagesDiv = document.getElementById('messages');
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+</script>
 </body>
 </html>
