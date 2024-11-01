@@ -7,3 +7,4 @@ google-auth-oauthlib
 flask
 Flask-SocketIO
 langchain
+tavily-python

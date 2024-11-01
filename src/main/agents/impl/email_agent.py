@@ -12,7 +12,6 @@ from langchain_core.tools import tool
 from googleapiclient.discovery import build
 
 from main.config import Config
-from main.tools.impl.email_tool import EmailTool
 from main.util.google_auth import GoogleAuth
 
 

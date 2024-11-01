@@ -25,7 +25,7 @@ class Supervisor:
 
     def __init__(self, send_response_callback, wait_for_response, send_task_completed, send_task_failed):
         # members = ["EmailAgent", "PDFQueryAgent", "SchedulerAgent", "SearchAgent", "ClarificationAgent"]
-        self.members = ["EmailAgent", "UserInputAgent"]
+        self.members = ["EmailAgent", "SchedulerAgent", "UserInputAgent"]
         self.options = ["FINISH"] + self.members
         self.model = ChatOpenAI(model="gpt-4o-mini", api_key=Config.OPEN_AI_KEY)
         self.send_response_callback = send_response_callback
@@ -97,12 +97,13 @@ class Supervisor:
         # Partial function application for each agent node
         email_node = functools.partial(self.agent_node, agent=EmailAgent(model=self.model)(), name="EmailAgent",
                                        task_id="email")
-        # scheduling_node = functools.partial(self.agent_node, agent=SchedulingAgent(model=self.model), name="SchedulerAgent")
+        scheduling_node = functools.partial(self.agent_node, agent=SchedulingAgent(model=self.model)(),
+                                            name="SchedulerAgent")
         user_input_node = functools.partial(self.user_node, agent=QuestionAgent(model=self.model)(), name="UserInput")
 
         workflow = StateGraph(self.AgentState)
         workflow.add_node("EmailAgent", email_node)
-        # workflow.add_node("SchedulerAgent", scheduling_node)
+        workflow.add_node("SchedulerAgent", scheduling_node)
         workflow.add_node("UserInputAgent", user_input_node)
         workflow.add_node("supervisor", self.supervisor_agent)
 

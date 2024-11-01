@@ -2,8 +2,8 @@ import os
 
 
 class Config:
-    SECRET_KEY = os.environ.get('SECRET_KEY') or 'default_secret_key'
+    OPEN_AI_KEY = os.environ.get('OPEN_AI_KEY')
+    SEARCH_KEY = os.environ.get('SEARCH_KEY')
     SENDER_EMAIL = "arunimsamudra@gmail.com"
-    SENDER_PW = "jslb mylh cshd nrqc"
     DEBUG = False
     TESTING = False
