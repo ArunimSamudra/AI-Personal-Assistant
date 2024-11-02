@@ -18,7 +18,7 @@ class InternetSearchAgent:
         self.internet_search_agent = create_react_agent(model, tools=[self.search_internet],
                                                         state_modifier=self.internet_search_prompt)
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self):
         return self.internet_search_agent
 
     @staticmethod
@@ -58,7 +58,7 @@ class InternetSearchAgent:
                        f'query: "{query}" ' \
             }]
 
-        model = ChatOpenAI(model="gpt-4o-mini", api_key=Config.OPEN_AI_KEY)
+        model = ChatOpenAI(model=Config.PUBLIC_LLM, api_key=Config.OPEN_AI_KEY)
 
         lc_messages = convert_openai_messages(prompt)
         response = model.invoke(lc_messages).content

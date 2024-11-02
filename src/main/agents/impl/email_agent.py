@@ -1,5 +1,6 @@
 # # import ollama
 from langchain_core.prompts import PromptTemplate
+from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 
@@ -17,8 +18,8 @@ from main.util.google_auth import GoogleAuth
 
 class EmailAgent:
 
-    def __init__(self, model: ChatOpenAI):
-        self.email_prompt = """
+    def __init__(self, model):
+        self.email_prompt = f"""
                 You are part of a multi-agent system designed to be a personal assistant for the user. 
                 Specifically, you are the **Email Agent** responsible for composing and sending emails on behalf of the user.
                 
@@ -26,6 +27,8 @@ class EmailAgent:
                 1. **Recipient(s)**: Who the email is for.
                 2. **Body**: The main message of the email.
                 3. **Subject**: A brief description of the email topic.
+                
+                Also, The sender's name is {Config.SENDER_NAME}, so don't ask that from the user
                 
                 Your responsibilities are as follows:
                 - **Extract Information**: When the user requests an email, analyze their query to identify the 
@@ -76,7 +79,7 @@ class EmailAgent:
                 str: A formatted response that includes extracted email addresses, subject,
                      body, and any missing details, all presented in a readable format.
             """
-        model = ChatOpenAI(model="gpt-4o-mini", api_key=Config.OPEN_AI_KEY)
+        model = ChatOllama(model=Config.LOCAL_LLM)
         prompt = PromptTemplate(
             input_variables=["query"],
             template=(

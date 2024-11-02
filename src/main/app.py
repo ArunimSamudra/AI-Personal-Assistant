@@ -1,15 +1,23 @@
-from flask import Flask, request, jsonify, render_template
+import base64
+import os
+
+from flask import Flask, render_template
 from flask_socketio import SocketIO, emit
 
+from main.agents.impl.rag_agent import RAGAgent
 from main.util.google_auth import GoogleAuth
 from src.main.config import Config
 from src.main.agents.supervisor import Supervisor
+from flask_cors import CORS
 
-# Initialize Flask and Supervisor
+# Initialize Flask
 app = Flask(__name__)
+CORS(app)
 app.config.from_object(Config)
 socketio = SocketIO(app)
 user_responses = {}
+UPLOAD_FOLDER = os.path.join(app.root_path, 'uploads')
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 
 @app.route('/')
@@ -35,6 +43,32 @@ def handle_user_response(data):
         supervisor.process_task(user_responses.pop(data['task_id']))
 
 
+@socketio.on('upload_pdf')
+def handle_pdf_upload(data):
+    # Get PDF data and file name from the client
+    pdf_data = data['pdf_data']
+    pdf_name = data['pdf_name']
+
+    # Ensure the file name ends with .pdf
+    if not pdf_name.lower().endswith('.pdf'):
+        pdf_name += '.pdf'
+
+    # Extract the base64-encoded content after 'data:application/pdf;base64,'
+    pdf_base64 = pdf_data.split(',')[1]
+
+    # Decode base64 to binary PDF data
+    pdf_binary = base64.b64decode(pdf_base64)
+
+    # Save the binary data to a file
+    file_path = os.path.join(UPLOAD_FOLDER, pdf_name)
+    with open(file_path, 'wb') as pdf_file:
+        pdf_file.write(pdf_binary)
+
+    print(f"Received and saved PDF: {pdf_name} at {file_path}")
+
+    RAGAgent.update_vectorstore()
+    socketio.emit('pdf_uploaded', None)
+
 def wait_for_response(task_id):
     """Wait for a response from the user for a given task ID."""
     while task_id not in user_responses:
@@ -59,27 +93,7 @@ def send_task_failed():
         'message': "Sorry, there seems to be some problem, can you type your question again?"})
 
 
-@app.route('/chat', methods=['POST'])
-def chat():
-    # Get task from the JSON payload
-    data = request.get_json()
-    user_task = data.get("task", "")
-
-    # Check if user wants to exit (for this API, you could modify the behavior)
-    if user_task.lower() == 'exit':
-        return jsonify({"message": "Exiting assistant."}), 200
-
-    # Process task using Supervisor
-    # supervisor = Supervisor(socketio, send_response_callback, wait_for_response)
-    # response = supervisor.process_task(user_task)
-
-    # Return JSON response
-    return jsonify({
-        "response": "You are part of a multi-agent system designed to be a personal assistant for the user. Specifically, you are the **Scheduling Agent** responsible for scheduling and creating meetings on behalf of the user."}), 200
-
-
 if __name__ == '__main__':
-    # app.run(debug=True, port=4400)
     GoogleAuth().authenticate()
     supervisor = Supervisor(send_response_callback, wait_for_response, send_task_completed, send_task_failed)
     socketio.run(app, debug=True, allow_unsafe_werkzeug=True, port=4400)

@@ -2,7 +2,7 @@
 <html>
 <head>
     <title>Personal Assistant</title>
-    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+    <script src="https://cdn.socket.io/4.8.0/socket.io.min.js"></script>
     <style>
         body {
             display: flex;
@@ -120,6 +120,14 @@
     let isNewConversation = true;
     let currentTaskId = null;
 
+    document.getElementById('send').disabled = true; // Disable the send button initially
+
+    // Add an event listener to enable/disable the send button based on input
+    document.getElementById('response').addEventListener('input', function () {
+        const response = document.getElementById('response').value;
+        document.getElementById('send').disabled = response.trim() === ''; // Enable if there's text, otherwise disable
+    });
+
     // Handle 'Enter' key press for sending message
     document.getElementById('response').addEventListener('keyup', function (event) {
         if (event.key === 'Enter') {
@@ -160,6 +168,17 @@
         pdfInput.click(); // Trigger the file input
     };
 
+    // Listen for PDF upload confirmation
+    socket.on('pdf_uploaded', (data) => {
+        // Display the uploaded PDF message
+        const messagesDiv = document.getElementById('messages');
+        const pdfMessageParagraph = document.createElement('p');
+        pdfMessageParagraph.textContent = `Uploaded PDF`;
+        pdfMessageParagraph.className = 'server-message';
+        messagesDiv.appendChild(pdfMessageParagraph);
+        scrollToBottom(); // Scroll to the bottom
+    });
+
     document.getElementById('pdfUpload').onchange = function (event) {
         const file = event.target.files[0];
         if (file && file.type === 'application/pdf') {
@@ -172,12 +191,10 @@
                     pdf_data: pdfData,
                     pdf_name: file.name
                 });
-
-                // Display the uploaded PDF message
                 const messagesDiv = document.getElementById('messages');
                 const pdfMessageParagraph = document.createElement('p');
-                pdfMessageParagraph.textContent = `Uploaded PDF: ${file.name}`;
-                pdfMessageParagraph.className = 'user-message';
+                pdfMessageParagraph.textContent = `Uploading PDF: ${file.name}`;
+                pdfMessageParagraph.className = 'server-message';
                 messagesDiv.appendChild(pdfMessageParagraph);
                 scrollToBottom(); // Scroll to the bottom
             };

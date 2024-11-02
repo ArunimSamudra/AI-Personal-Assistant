@@ -8,3 +8,7 @@ flask
 Flask-SocketIO
 langchain
 tavily-python
+langchain-chroma
+flask-cors
+pymupdf
+langchain-ollama

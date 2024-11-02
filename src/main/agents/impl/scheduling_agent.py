@@ -1,5 +1,6 @@
 from googleapiclient.errors import HttpError
 from langchain_core.prompts import PromptTemplate
+from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
 
 from main.config import Config
@@ -64,7 +65,7 @@ class SchedulingAgent:
                                                                  self.generate_meeting_payload, self.create_event],
                                                    state_modifier=self.scheduler_prompt)
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self):
         return self.scheduling_agent
 
     @staticmethod
@@ -87,7 +88,7 @@ class SchedulingAgent:
                      end time, description, location, attendees, and any missing details, all
                      presented in a readable format.
         """
-        model = ChatOpenAI(model="gpt-4o-mini", api_key=Config.OPEN_AI_KEY)
+        model = ChatOllama(model=Config.LOCAL_LLM)
         prompt = PromptTemplate(
             input_variables=["query"],
             template=(
@@ -227,7 +228,7 @@ class SchedulingAgent:
         }
 
         # Send prompt to LLM
-        model = ChatOpenAI(model="gpt-4o-mini", api_key=Config.OPEN_AI_KEY)
+        model = ChatOllama(model=Config.LOCAL_LLM)
 
         prompt = PromptTemplate(
             input_variables=["summary", "start", "end", "location", "description", "attendees"],

@@ -4,11 +4,14 @@ from typing import Literal, Annotated, TypedDict, Sequence
 
 from langchain_core.messages import HumanMessage, BaseMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_ollama import OllamaLLM, ChatOllama
 from langchain_openai import ChatOpenAI
 from langgraph.constants import END, START
 from langgraph.graph import StateGraph
 
 from main.agents.impl.email_agent import EmailAgent
+from main.agents.impl.internet_search_agent import InternetSearchAgent
+from main.agents.impl.rag_agent import RAGAgent
 from main.agents.impl.question_agent import QuestionAgent
 from main.agents.impl.scheduling_agent import SchedulingAgent
 from main.config import Config
@@ -16,7 +19,8 @@ from pydantic import BaseModel
 
 
 class RouteResponse(BaseModel):
-    next: Literal["FINISH", "EmailAgent", "SchedulerAgent", "UserInputAgent"]
+    #next: Literal["FINISH", "EmailAgent", "RAGAgent", "SchedulerAgent", "InternetSearchAgent", "UserInputAgent"]
+    next: Literal["FINISH", "RAGAgent", "UserInputAgent"]
 
 
 # Supervisor class that manages agent routing and workflow logic
@@ -24,10 +28,11 @@ class RouteResponse(BaseModel):
 class Supervisor:
 
     def __init__(self, send_response_callback, wait_for_response, send_task_completed, send_task_failed):
-        # members = ["EmailAgent", "PDFQueryAgent", "SchedulerAgent", "SearchAgent", "ClarificationAgent"]
-        self.members = ["EmailAgent", "SchedulerAgent", "UserInputAgent"]
+        #self.members = ["EmailAgent", "RAGAgent", "SchedulerAgent", "InternetSearchAgent", "UserInputAgent"]
+        self.members = ["RAGAgent", "UserInputAgent"]
         self.options = ["FINISH"] + self.members
-        self.model = ChatOpenAI(model="gpt-4o-mini", api_key=Config.OPEN_AI_KEY)
+        self.public_model = ChatOpenAI(model=Config.PUBLIC_LLM, api_key=Config.OPEN_AI_KEY)
+        self.private_model = ChatOllama(model=Config.LOCAL_LLM)
         self.send_response_callback = send_response_callback
         self.wait_for_response = wait_for_response
         self.send_task_completed = send_task_completed
@@ -52,8 +57,7 @@ class Supervisor:
                 ),
             ]
         ).partial(options=str(self.options), members=", ".join(self.members))
-        self.supervisor_llm = ChatOpenAI(model="gpt-4o-mini", api_key=Config.OPEN_AI_KEY)
-        self.supervisor_chain = prompt | self.supervisor_llm.with_structured_output(RouteResponse)
+        self.supervisor_chain = prompt | self.public_model.with_structured_output(RouteResponse)
 
     def supervisor_agent(self, state):
         response = self.supervisor_chain.invoke(state)
@@ -70,15 +74,15 @@ class Supervisor:
         }
 
     def user_node(self, state, agent, name):
-        # if not self.last_task:
+        # if not self.last_task or self.last_task == 'user_input':
         #     result = agent.invoke(state)
-        #     self.last_task = 'user_input'
         #     self.send_response_callback(task_id='user_input',
         #                                 message=result['messages'][-1].content)
         #     return {
         #         "messages": [HumanMessage(content=result["messages"][-1].content, name=name)]
         #     }
         user_response = self.wait_for_response(task_id=self.last_task)
+        self.last_task = 'user_input'
         state['messages'].append(HumanMessage(content=user_response, name=name))
         return {
             "messages": [HumanMessage(content=user_response, name=name)]
@@ -95,16 +99,23 @@ class Supervisor:
         self.create_supervisor_agent()
 
         # Partial function application for each agent node
-        email_node = functools.partial(self.agent_node, agent=EmailAgent(model=self.model)(), name="EmailAgent",
+        email_node = functools.partial(self.agent_node, agent=EmailAgent(model=self.private_model)(), name="EmailAgent",
                                        task_id="email")
-        scheduling_node = functools.partial(self.agent_node, agent=SchedulingAgent(model=self.model)(),
-                                            name="SchedulerAgent")
-        user_input_node = functools.partial(self.user_node, agent=QuestionAgent(model=self.model)(), name="UserInput")
+        scheduling_node = functools.partial(self.agent_node, agent=SchedulingAgent(model=self.private_model)(),
+                                            name="SchedulerAgent", task_id="scheduling")
+        internet_search_node = functools.partial(self.agent_node, agent=InternetSearchAgent(model=self.public_model)(),
+                                                 name="InternetSearchAgent")
+        rag_node = functools.partial(self.agent_node, agent=RAGAgent(model=self.private_model)(),
+                                     name="RAGAgent", task_id="rag")
+        user_input_node = functools.partial(self.user_node, agent=QuestionAgent(model=self.public_model)(),
+                                            name="UserInput")
 
         workflow = StateGraph(self.AgentState)
-        workflow.add_node("EmailAgent", email_node)
-        workflow.add_node("SchedulerAgent", scheduling_node)
+        # workflow.add_node("EmailAgent", email_node)
+        # workflow.add_node("SchedulerAgent", scheduling_node)
         workflow.add_node("UserInputAgent", user_input_node)
+        # workflow.add_node("InternetSearchAgent", internet_search_node)
+        workflow.add_node("RAGAgent", rag_node)
         workflow.add_node("supervisor", self.supervisor_agent)
 
         # Add edges to return to supervisor after each task
