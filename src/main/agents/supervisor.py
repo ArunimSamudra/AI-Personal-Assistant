@@ -95,13 +95,6 @@ class Supervisor:
         }
 
     def user_node(self, state, agent, name):
-        # if not self.last_task or self.last_task == 'user_input':
-        #     result = agent.invoke(state)
-        #     self.send_response_callback(task_id='user_input',
-        #                                 message=result['messages'][-1].content)
-        #     return {
-        #         "messages": [HumanMessage(content=result["messages"][-1].content, name=name)]
-        #     }
         user_response = self.wait_for_response(task_id=self.last_task)
         self.last_task = 'user_input'
         state['messages'].append(HumanMessage(content=user_response, name=name))

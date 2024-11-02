@@ -1,11 +1,7 @@
 import os
 from uuid import uuid4
 
-import chromadb
-import ollama
-from chromadb import Settings, DEFAULT_TENANT, DEFAULT_DATABASE
 from langchain_chroma import Chroma
-from langchain_core import documents
 from langchain_core.prompts import PromptTemplate
 from langchain_ollama import ChatOllama, OllamaEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -129,9 +125,9 @@ class RAGAgent:
                     model="llama3.2:1b",
                 )
                 RAGAgent.vectorstore = Chroma(
-                    collection_name="example_collection",
+                    collection_name="docs",
                     embedding_function=embeddings,
-                    persist_directory="./chroma_langchain_db",
+                    persist_directory="./vector_db",
                     # Where to save data locally, remove if not necessary
                     )
 
