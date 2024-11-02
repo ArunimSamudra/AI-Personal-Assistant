@@ -19,8 +19,7 @@ from pydantic import BaseModel
 
 
 class RouteResponse(BaseModel):
-    #next: Literal["FINISH", "EmailAgent", "RAGAgent", "SchedulerAgent", "InternetSearchAgent", "UserInputAgent"]
-    next: Literal["FINISH", "RAGAgent", "UserInputAgent"]
+    next: Literal["FINISH", "EmailAgent", "RAGAgent", "SchedulerAgent", "InternetSearchAgent", "UserInputAgent"]
 
 
 # Supervisor class that manages agent routing and workflow logic
@@ -28,8 +27,7 @@ class RouteResponse(BaseModel):
 class Supervisor:
 
     def __init__(self, send_response_callback, wait_for_response, send_task_completed, send_task_failed):
-        #self.members = ["EmailAgent", "RAGAgent", "SchedulerAgent", "InternetSearchAgent", "UserInputAgent"]
-        self.members = ["RAGAgent", "UserInputAgent"]
+        self.members = ["EmailAgent", "RAGAgent", "SchedulerAgent", "InternetSearchAgent", "UserInputAgent"]
         self.options = ["FINISH"] + self.members
         self.public_model = ChatOpenAI(model=Config.PUBLIC_LLM, api_key=Config.OPEN_AI_KEY)
         self.private_model = ChatOllama(model=Config.LOCAL_LLM)
@@ -41,10 +39,33 @@ class Supervisor:
 
     def create_supervisor_agent(self):
         system_prompt = (
-            "You are a supervisor tasked with managing a conversation between the"
-            " following agents: {members}. Given the current user request, respond"
-            " with the agent that should act next. When the task is complete, respond"
-            " with FINISH."
+            "You are a supervisor tasked with managing a conversation between the following agents:\n\n"
+            "{members}\n\n"
+            "Each agent has a specific function:\n"
+            "- **EmailAgent**: Composes, drafts, and sends emails on behalf"
+            " of the user, collecting details such as recipient, subject, and body content if missing.\n"
+            "- **RAGAgent**: Retrieves and summarizes specific information from internal"
+            " or predefined knowledge sources, especially when user queries relate to structured or internal content.\n"
+            "- **SchedulerAgent**: Schedules and manages calendar events, gathering "
+            "details such as meeting time, date, location, and attendees, and checks for availability conflicts.\n"
+            "- **InternetSearchAgent**: Searches the internet to gather up-to-date external "
+            "information on user queries, and summarizes search results if needed.\n"
+            "- **UserInputAgent**: Interacts with the user to clarify details, gather missing "
+            "information, or confirm responses when other agents require additional input.\n\n"
+            "Given the user’s current request, select the most appropriate agent based on the task "
+            "requirements. The selection should be based on the nature of the query:\n"
+            "- **Information Retrieval**: For factual questions or requests for summaries, choose "
+            "either **RAGAgent** or **InternetSearchAgent** based on whether the information is internal or external.\n"
+            "- **Email Composition**: For requests related to composing or sending an email, "
+            "select **EmailAgent**.\n"
+            "- **Event Scheduling**: If the user is trying to create or manage a calendar event, "
+            "choose **SchedulerAgent**.\n"
+            "- **Additional Input Needed**: If an agent requires further clarification or information "
+            "to proceed, select **UserInputAgent**.\n\n"
+            "Before ending the process with FINISH, route to UserInputAgent and ask if they need any more help for"
+            "their task with any other agent"
+            "When all necessary tasks are complete, respond with FINISH. Base your decisions on the "
+            "agent roles and task requirements described above."
         )
         prompt = ChatPromptTemplate.from_messages(
             [
@@ -99,22 +120,22 @@ class Supervisor:
         self.create_supervisor_agent()
 
         # Partial function application for each agent node
-        email_node = functools.partial(self.agent_node, agent=EmailAgent(model=self.private_model)(), name="EmailAgent",
+        email_node = functools.partial(self.agent_node, agent=EmailAgent(model=self.public_model)(), name="EmailAgent",
                                        task_id="email")
-        scheduling_node = functools.partial(self.agent_node, agent=SchedulingAgent(model=self.private_model)(),
+        scheduling_node = functools.partial(self.agent_node, agent=SchedulingAgent(model=self.public_model)(),
                                             name="SchedulerAgent", task_id="scheduling")
         internet_search_node = functools.partial(self.agent_node, agent=InternetSearchAgent(model=self.public_model)(),
-                                                 name="InternetSearchAgent")
+                                                 name="InternetSearchAgent", task_id="internet search")
         rag_node = functools.partial(self.agent_node, agent=RAGAgent(model=self.private_model)(),
                                      name="RAGAgent", task_id="rag")
         user_input_node = functools.partial(self.user_node, agent=QuestionAgent(model=self.public_model)(),
                                             name="UserInput")
 
         workflow = StateGraph(self.AgentState)
-        # workflow.add_node("EmailAgent", email_node)
-        # workflow.add_node("SchedulerAgent", scheduling_node)
+        workflow.add_node("EmailAgent", email_node)
+        workflow.add_node("SchedulerAgent", scheduling_node)
         workflow.add_node("UserInputAgent", user_input_node)
-        # workflow.add_node("InternetSearchAgent", internet_search_node)
+        workflow.add_node("InternetSearchAgent", internet_search_node)
         workflow.add_node("RAGAgent", rag_node)
         workflow.add_node("supervisor", self.supervisor_agent)
 
@@ -136,7 +157,8 @@ class Supervisor:
                         "messages": [
                             HumanMessage(content=task)
                         ]
-                    }
+                    },
+                    {"recursion_limit": 100}
             ):
                 if "__end__" not in s:
                     print(s)

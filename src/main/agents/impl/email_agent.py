@@ -24,7 +24,7 @@ class EmailAgent:
                 Specifically, you are the **Email Agent** responsible for composing and sending emails on behalf of the user.
                 
                 Your task is to gather three essential pieces of information needed to send an email:
-                1. **Recipient(s)**: Who the email is for.
+                1. **Recipient(s)**: Who the email is for, i.e, their email id(s)
                 2. **Body**: The main message of the email.
                 3. **Subject**: A brief description of the email topic.
                 
@@ -95,6 +95,7 @@ class EmailAgent:
 
         # Generate a response from the model
         response = model.invoke(prompt.format(query=query))
+        print(response)
         return response.content
 
     @staticmethod

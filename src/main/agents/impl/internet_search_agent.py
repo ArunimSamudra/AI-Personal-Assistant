@@ -43,7 +43,7 @@ class InternetSearchAgent:
         """
         search_client = TavilyClient(api_key=Config.SEARCH_KEY)
         content = \
-            search_client.search(query, search_depth="basic", max_results=5 if max_results is None else max_results)[
+            search_client.search(query, search_depth="advanced", max_results=5 if max_results is None else max_results)[
                 "results"]
 
         prompt = [{

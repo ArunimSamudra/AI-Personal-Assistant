@@ -22,11 +22,12 @@ class SchedulingAgent:
 
                 To successfully schedule a meeting, you need the following required information:
                 1. **Meeting Summary/Title**: A brief title or summary for the meeting.
-                2. **Start Date and Time**: The date and start time for the meeting.
+                2. **Start Date and Time**: The date and start time for the meeting (the time zone is Central Daylight Time, 
+                so don't ask the user. Also, the current year is 2024)
                 3. **End Date and Time**: The date and end time for the meeting.
                 
                 Additionally, you may also gather the following optional details:
-                - **Attendees**: Email addresses of the people to invite.
+                - **Attendees**: Email addresses of the people to invite. (This is optional, do not generate fake email ids if the user doesn't provide, leave it empty)
                 - **Location**: A specific location for the meeting, if applicable.
                 - **Meeting Description**: Additional information or details about the meeting.
                 
@@ -193,16 +194,13 @@ class SchedulingAgent:
                                  attendees: list[dict] = None):
         """
         Generates a meeting payload for the Google Calendar API using the provided meeting details.
-        Constructs a JSON-compatible dictionary with required and optional fields for scheduling a meeting,
-        following the Google Calendar API format.
 
-        :param summary: The title or summary of the meeting (required).
+        :param summary: The summary of the meeting (required).
         :param start: A dictionary specifying the start date and time in ISO 8601 format and timezone (required).
                       Example format: {'dateTime': '2024-11-01T14:00:00-07:00', 'timeZone': 'America/Los_Angeles'}
         :param end: A dictionary specifying the end date and time in ISO 8601 format and timezone (required).
-                    Example format: {'dateTime': '2024-11-01T15:00:00-07:00', 'timeZone': 'America/Los_Angeles'}
         :param location: The location for the meeting (optional).
-        :param description: A brief description or agenda for the meeting (optional).
+        :param description: A brief description for the meeting (optional).
         :param attendees: A list of dictionaries representing attendees, with each dictionary containing an 'email' key.
                           Example: [{'email': 'teammember1@example.com'}, {'email': 'teammember2@example.com'}] (optional).
 
